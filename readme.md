@@ -41,6 +41,8 @@ También podemos usar <u>subrayado</u> usando HTML en Markdown.
 ---
 
 ## Imágenes
+ ![Texto alternativo](https://r-charts.com/es/miscelanea/procesamiento-imagenes-magick_files/figure-html/importar-imagen-r.png "Imagen de ejemplo")
+ 
 ![Texto alternativo](https://via.placeholder.com/150 "Imagen de ejemplo")
 
 ---
