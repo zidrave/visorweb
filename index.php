@@ -749,7 +749,7 @@ if (!in_array($currentTheme, $validThemes)) {
 
     <footer class="footer">
         <div class="footer-content">
-            <p>VisorWeb estilo tutoriales by <strong>Zidrave Labs</strong></p>
+            <p><strong><a href='https://github.com/zidrave/visorweb/' target='_black'  class='link-github'> VisorWeb en Github</a></strong> estilo tutoriales by <strong>Zidrave Labs</strong></p>
         </div>
     </footer>
 
