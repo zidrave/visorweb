@@ -1,69 +1,80 @@
-# Título Nivel 1
-## Título Nivel 2
-### Título Nivel 3
-#### Título Nivel 4
-##### Título Nivel 5
-###### Título Nivel 6
+# 📖 VisorWeb PHP Seguro
+
+Este proyecto es un **visor de contenidos web en PHP** diseñado con un fuerte enfoque en la **seguridad**, la **validación de archivos** y la **sanitización de datos**.  
+Permite cargar y visualizar archivos locales (`.txt`, `.md`, `.json`) o incluso contenidos remotos desde URLs seguras (solo HTTPS), siempre bajo reglas estrictas que previenen inyecciones de código malicioso.
 
 ---
 
-## Párrafos y texto
-Este es un párrafo de ejemplo con **negrita**, *cursiva*, ~~tachado~~ y ***negrita + cursiva***.  
-También podemos usar <u>subrayado</u> usando HTML en Markdown.
+## 🔐 Características principales
 
-> Esto es una cita.  
-> Puede tener varias líneas y anidarse:
->> Una cita dentro de otra cita.
+- **Seguridad de sesiones**:
+  - Cookies con `HttpOnly`, `SameSite=Strict` y soporte para `Secure`.
+  - Modo estricto de uso de sesiones.
 
----
+- **Protecciones contra ataques comunes**:
+  - Bloqueo de dominios privados/inseguros (`localhost`, rangos privados, `file://`, `php://`, etc.).
+  - Bloqueo de patrones peligrosos en nombres de archivo (`../`, `php://`, `ftp://`, etc.).
+  - Sanitización de contenido para evitar ejecución de PHP, JavaScript o HTML no autorizado.
 
-## Listas
-### Lista no ordenada
-- Item 1
-- Item 2
-  - Subitem 2.1
-  - Subitem 2.2
-- Item 3
+- **Gestión de archivos locales**:
+  - Solo se permiten extensiones: `.txt`, `.md`, `.json`.
+  - Límite máximo de tamaño: **2 MB por archivo**.
+  - Validación para que los archivos estén siempre dentro del directorio permitido (`content/`).
 
-### Lista ordenada
-1. Primer paso
-2. Segundo paso
-   1. Subpaso 2.1
-   2. Subpaso 2.2
-3. Tercer paso
+- **Contenido remoto**:
+  - Solo permite **URLs HTTPS válidas**.
+  - Límite máximo de **1 MB** para archivos remotos.
+  - Sanitización avanzada para evitar código malicioso.
 
----
-
-## Enlaces
-- [Enlace simple](https://www.ejemplo.com)
-- [Enlace con título](https://www.ejemplo.com "Tooltip de ejemplo")
+- **Soporte de formatos**:
+  - **Texto plano (`.txt`)** → Escapado seguro con saltos de línea.
+  - **Markdown (`.md`)** → Soporte para:
+    - Encabezados, listas, citas y tablas.
+    - Negritas, cursivas, tachado, enlaces e imágenes.
+    - Bloques de código con etiquetas de lenguaje.
+  - **JSON (`.json`)** → Formateo estructurado con soporte para `title`, `description` y `sections`.
 
 ---
 
-## Imágenes
- ![Texto alternativo](https://r-charts.com/es/miscelanea/procesamiento-imagenes-magick_files/figure-html/importar-imagen-r.png "Imagen de ejemplo")
- 
+## 🚀 Flujo de funcionamiento
+
+1. El usuario puede seleccionar un archivo local desde la carpeta `content/` o pasar una URL remota vía parámetro `?url=`.
+2. El sistema valida:
+   - Nombre del archivo o URL.
+   - Extensión permitida.
+   - Tamaño máximo.
+   - Que no exista código PHP/JavaScript inyectado.
+3. El contenido se procesa y se renderiza en HTML seguro.
+4. En caso de error o intento de acceso indebido, se muestra un mensaje de advertencia sin comprometer la seguridad.
+
+---
+
+## ⚡ Ejemplos de uso
+
+### Cargar archivo local
+
+http://tusitio.com/visor.php?file=ejemplo.md
+
+### Cargar contenido remoto seguro
+
+http://tusitio.com/visor.php?url=https://raw.githubusercontent.com/usuario/repositorio/main/readme.md
 
 
 ---
 
-## Tablas
-| Columna 1 | Columna 2 | Columna 3 |
-|-----------|-----------|-----------|
-| Fila 1    | Texto A   | Texto B   |
-| Fila 2    | Texto C   | Texto D   |
-| Fila 3    | Texto E   | Texto F   |
+## 📌 Casos de uso
 
+- Crear un visor seguro de tutoriales o guías en formato Markdown.
+- Integrar archivos JSON para mostrar información estructurada.
+- Visualizar contenido externo desde fuentes confiables sin riesgo de ejecución de código malicioso.
 
 ---
 
-## Código
-### En línea
-Este es un ejemplo de `código en línea`.
+## 🔒 Enfoque de seguridad
 
-### Bloques de código
-```php
-<?php
-echo "Hola mundo desde PHP!";
-?>
-```
+El diseño de este script prioriza la **prevención de ataques XSS, RFI, LFI y ejecución remota de código**.  
+Todas las entradas del usuario son **filtradas, validadas y sanitizadas** antes de ser procesadas o renderizadas en el navegador.
+
+---
+
+✍️ Desarrollado por **Zidrave Labs** como parte del proyecto **VisorWeb**.
