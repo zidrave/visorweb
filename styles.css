@@ -954,3 +954,12 @@ blockquote blockquote {
   margin: 10px 0 0 15px;
   color: #ccc;
 }
+
+.link-github {
+    color: #00bfff; /* Celeste */
+    text-decoration: none; /* Opcional: quita el subrayado */
+}
+
+.link-github:hover {
+    color: #00bfff; /* Mantiene el mismo celeste al pasar el mouse */
+}
