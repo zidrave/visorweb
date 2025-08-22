@@ -8,11 +8,11 @@ ini_set('session.use_strict_mode', 1);
 ini_set('session.cookie_samesite', 'Strict');
 
 // Configuración de seguridad
-ini_set('display_errors', 0);
+ini_set('display_errors', 0); // Cambiar a 1 temporalmente para depuración si es necesario
 error_reporting(E_ALL);
 
 // Configuración
-$contentDir = 'content/';
+$contentDir = 'content' . DIRECTORY_SEPARATOR;
 $allowedExtensions = ['txt', 'md', 'json'];
 $maxFileSize = 2 * 1024 * 1024; // 2MB máximo
 $maxRemoteSize = 1 * 1024 * 1024; // 1MB máximo para contenido remoto
@@ -32,23 +32,36 @@ $blockedDomains = [
     'php://'
 ];
 
-// Función para validar y sanitizar nombres de archivo
+// Función para validar y sanitizar nombres de archivo, permitiendo subdirectorios
 function validateAndSanitizeFilename($filename) {
     $filename = urldecode($filename);
-    $filename = basename($filename);
-    $filename = preg_replace('/[^a-zA-Z0-9._-]/', '', $filename);
-    if (empty($filename) || strlen($filename) > 255) {
-        error_log("Nombre de archivo inválido: $filename");
-        return false;
-    }
-    $dangerous = ['../', '..\\', './', '.\\', 'php://', 'file://', 'data:', 'http:', 'https:', 'ftp:'];
+    // Normalizar separadores de directorio
+    $filename = str_replace('\\', '/', $filename);
+    // Eliminar patrones peligrosos
+    $dangerous = ['../', '..\\', './', '.\\', '//', 'php://', 'file://', 'data:', 'http:', 'https:', 'ftp:'];
     foreach ($dangerous as $pattern) {
         if (stripos($filename, $pattern) !== false) {
             error_log("Patrón peligroso detectado en archivo: $filename");
             return false;
         }
     }
-    return $filename;
+    // Sanitizar componentes del path
+    $parts = explode('/', $filename);
+    $sanitizedParts = [];
+    foreach ($parts as $part) {
+        $part = preg_replace('/[^a-zA-Z0-9._-]/', '', $part);
+        if (empty($part) || strlen($part) > 255) {
+            error_log("Componente de archivo inválido: $part");
+            return false;
+        }
+        $sanitizedParts[] = $part;
+    }
+    $sanitizedFilename = implode('/', $sanitizedParts);
+    if (empty($sanitizedFilename)) {
+        error_log("Nombre de archivo inválido después de sanitización: $filename");
+        return false;
+    }
+    return $sanitizedFilename;
 }
 
 // Función para verificar si el archivo está dentro del directorio permitido
@@ -188,33 +201,70 @@ function getRemoteContent($url) {
     ];
 }
 
-// Función para obtener todos los archivos con validación de seguridad
+// Función para obtener todos los archivos y carpetas con validación de seguridad
 function getContentFiles($dir, $extensions) {
-    $files = [];
+    $result = ['root' => [], 'folders' => []];
     $realDir = realpath($dir);
     if (!$realDir || !is_dir($realDir)) {
         error_log("Directorio $dir no existe o no accesible");
-        return $files;
+        return $result;
     }
     global $maxFileSize;
-    foreach ($extensions as $ext) {
-        foreach (glob($realDir . '/*.'. $ext) as $fullPath) {
-            if (!is_file($fullPath) || filesize($fullPath) > $maxFileSize) {
+
+    // Escanear directorios y archivos
+    $items = scandir($realDir);
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') {
+            continue;
+        }
+        $itemPath = $realDir . DIRECTORY_SEPARATOR . $item;
+        if (is_dir($itemPath)) {
+            // Procesar subdirectorio
+            $folderFiles = [];
+            foreach ($extensions as $ext) {
+                foreach (glob($itemPath . DIRECTORY_SEPARATOR . '*.' . $ext) as $fullPath) {
+                    if (!is_file($fullPath) || filesize($fullPath) > $maxFileSize) {
+                        continue;
+                    }
+                    $file = basename($fullPath);
+                    $sanitizedFile = validateAndSanitizeFilename($file);
+                    if ($sanitizedFile) {
+                        $relativePath = $item . '/' . $sanitizedFile;
+                        $folderFiles[] = [
+                            'name' => $relativePath,
+                            'title' => ucfirst(str_replace(['_', '-'], ' ', pathinfo($sanitizedFile, PATHINFO_FILENAME))),
+                            'path' => $fullPath,
+                            'type' => $ext
+                        ];
+                    }
+                }
+            }
+            if (!empty($folderFiles)) {
+                $result['folders'][$item] = [
+                    'name' => $item,
+                    'title' => ucfirst(str_replace(['_', '-'], ' ', $item)),
+                    'files' => $folderFiles
+                ];
+            }
+        } elseif (is_file($itemPath)) {
+            // Procesar archivos en el directorio raíz
+            $ext = strtolower(pathinfo($itemPath, PATHINFO_EXTENSION));
+            if (!in_array($ext, $extensions) || filesize($itemPath) > $maxFileSize) {
                 continue;
             }
-            $file = basename($fullPath);
+            $file = basename($itemPath);
             $sanitizedFile = validateAndSanitizeFilename($file);
             if ($sanitizedFile) {
-                $files[] = [
+                $result['root'][] = [
                     'name' => $sanitizedFile,
                     'title' => ucfirst(str_replace(['_', '-'], ' ', pathinfo($sanitizedFile, PATHINFO_FILENAME))),
-                    'path' => $fullPath,
+                    'path' => $itemPath,
                     'type' => $ext
                 ];
             }
         }
     }
-    return $files;
+    return $result;
 }
 
 // Función para procesar contenido según el tipo con validación de seguridad
@@ -381,32 +431,24 @@ function formatMarkdownContent($content) {
     );
     
     // Procesar encabezados
-// Encabezados nivel 6
-$content = preg_replace('/^###### (.*)$/m', '<h6>' . htmlspecialchars('$1', ENT_QUOTES, 'UTF-8') . '</h6>', $content);
-// Encabezados nivel 5
-$content = preg_replace('/^##### (.*)$/m', '<h5>' . htmlspecialchars('$1', ENT_QUOTES, 'UTF-8') . '</h5>', $content);
- 
+    $content = preg_replace('/^###### (.*)$/m', '<h6>' . htmlspecialchars('$1', ENT_QUOTES, 'UTF-8') . '</h6>', $content);
+    $content = preg_replace('/^##### (.*)$/m', '<h5>' . htmlspecialchars('$1', ENT_QUOTES, 'UTF-8') . '</h5>', $content);
     $content = preg_replace('/^#### (.*)$/m', '<h4>' . htmlspecialchars('$1', ENT_QUOTES, 'UTF-8') . '</h4>', $content);
     $content = preg_replace('/^### (.*)$/m', '<h3>' . htmlspecialchars('$1', ENT_QUOTES, 'UTF-8') . '</h3>', $content);
     $content = preg_replace('/^## (.*)$/m', '<h2>' . htmlspecialchars('$1', ENT_QUOTES, 'UTF-8') . '</h2>', $content);
     $content = preg_replace('/^# (.*)$/m', '<h1>' . htmlspecialchars('$1', ENT_QUOTES, 'UTF-8') . '</h1>', $content);
 
-
-
-
-
-// Imágenes Markdown ![alt](url "title")
-$content = preg_replace_callback(
-    '/!\[([^\]]*)\]\(([^\s\)]+)(?:\s+"([^"]+)")?\)/',
-    function ($matches) {
-        $alt = htmlspecialchars($matches[1], ENT_QUOTES, 'UTF-8');
-        $src = htmlspecialchars($matches[2], ENT_QUOTES, 'UTF-8');
-        $title = isset($matches[3]) ? ' title="' . htmlspecialchars($matches[3], ENT_QUOTES, 'UTF-8') . '"' : '';
-        return '<img src="' . $src . '" alt="' . $alt . '"' . $title . ' style="max-width:100%; height:auto;">';
-    },
-    $content
-);
-
+    // Imágenes Markdown ![alt](url "title")
+    $content = preg_replace_callback(
+        '/!\[([^\]]*)\]\(([^\s\)]+)(?:\s+"([^"]+)")?\)/',
+        function ($matches) {
+            $alt = htmlspecialchars($matches[1], ENT_QUOTES, 'UTF-8');
+            $src = htmlspecialchars($matches[2], ENT_QUOTES, 'UTF-8');
+            $title = isset($matches[3]) ? ' title="' . htmlspecialchars($matches[3], ENT_QUOTES, 'UTF-8') . '"' : '';
+            return '<img src="' . $src . '" alt="' . $alt . '"' . $title . ' style="max-width:100%; height:auto;">';
+        },
+        $content
+    );
     
     // Procesar listas (ordenadas y no ordenadas) con soporte para anidamiento
     $lines = explode("\n", $content);
@@ -437,26 +479,20 @@ $content = preg_replace_callback(
         
         // Procesar citas (blockquote con soporte para anidamiento)
         if (preg_match('/^\s*((?:>\s*)+)\s?(.*)$/', $line, $qmatches)) {
-            // contar cantidad de '>' (soporta formatos '> >' y '>>')
             preg_match_all('/>/', $qmatches[1], $m);
             $quoteLevel = count($m[0]);
             $quoteContent = $qmatches[2];
             
-            // Abrir nuevas citas si subimos de nivel
             while ($currentQuoteLevel < $quoteLevel) {
                 $processedLines[] = '<blockquote>';
                 array_push($quoteStack, '</blockquote>');
                 $currentQuoteLevel++;
             }
-            // Cerrar citas si bajamos de nivel
             while ($currentQuoteLevel > $quoteLevel) {
                 $processedLines[] = array_pop($quoteStack);
                 $currentQuoteLevel--;
             }
             
-            // Procesar el contenido inline dentro de la cita
-            // NOTA: si la línea de la cita contiene una lista o encabezado, es posible que
-            // necesites soporte adicional; aquí procesamos inline básico y preservamos anidamiento.
             if (trim($quoteContent) === '') {
                 $processedLines[] = '';
             } else {
@@ -467,14 +503,13 @@ $content = preg_replace_callback(
         
         // Contar espacios de indentación
         preg_match('/^(\s*)/', $line, $indentMatch);
-        $indentLevel = strlen($indentMatch[1]) / 2; // 2 espacios = 1 nivel
+        $indentLevel = strlen($indentMatch[1]) / 2;
         
         // Procesar listas ordenadas
-        if (preg_match('/^(\s*)(\d+)\.\s+(.*)$/', $line, $matches)) {
-            $itemContent = $matches[3]; // No escapar aún
+        if (preg_match('/^(\s*)(\d+)\.\s+(.*)$/', $line, $matches) && !empty($matches[3])) {
+            $itemContent = $matches[3];
             $itemIndent = strlen($matches[1]) / 2;
             
-            // Ajustar pila de listas
             while ($itemIndent < $currentIndent) {
                 $processedLines[] = array_pop($listStack);
                 $currentIndent--;
@@ -489,16 +524,14 @@ $content = preg_replace_callback(
                 $currentIndent = 0;
             }
             
-            // Procesar contenido inline (enlaces, negritas, cursivas, código)
             $itemContent = processInlineMarkdown($itemContent);
             $processedLines[] = "<li>$itemContent</li>";
         }
         // Procesar listas no ordenadas
-        elseif (preg_match('/^(\s*)- (.*)$/', $line, $matches)) {
-            $itemContent = $matches[2]; // No escapar aún
+        elseif (preg_match('/^(\s*)- (.*)$/', $line, $matches) && !empty($matches[2])) {
+            $itemContent = $matches[2];
             $itemIndent = strlen($matches[1]) / 2;
             
-            // Ajustar pila de listas
             while ($itemIndent < $currentIndent) {
                 $processedLines[] = array_pop($listStack);
                 $currentIndent--;
@@ -513,13 +546,11 @@ $content = preg_replace_callback(
                 $currentIndent = 0;
             }
             
-            // Procesar contenido inline
             $itemContent = processInlineMarkdown($itemContent);
             $processedLines[] = "<li>$itemContent</li>";
         }
         // Línea normal
         else {
-            // Si hay citas abiertas y esta línea no es de cita, cerrarlas
             if ($currentQuoteLevel > 0) {
                 while ($currentQuoteLevel > 0) {
                     $processedLines[] = array_pop($quoteStack);
@@ -536,23 +567,19 @@ $content = preg_replace_callback(
         }
     }
     
-    // Cerrar cualquier lista abierta
     while (!empty($listStack)) {
         $processedLines[] = array_pop($listStack);
     }
-    // Cerrar cualquier cita abierta
     while (!empty($quoteStack)) {
         $processedLines[] = array_pop($quoteStack);
     }
     
-    // Restaurar bloques de código
     for ($i = 0; $i < count($processedLines); $i++) {
         foreach ($codeBlocks as $placeholder => $codeBlock) {
             $processedLines[$i] = str_replace($placeholder, $codeBlock, $processedLines[$i]);
         }
     }
     
-    // Procesar párrafos y saltos de línea
     $content = implode("\n", $processedLines);
     $content = '<p>' . $content . '</p>';
     $content = preg_replace('/<p>\s*<\/p>/', '', $content);
@@ -567,7 +594,6 @@ $content = preg_replace_callback(
     $content = preg_replace('/<p>\s*(<table)/', '$1', $content);
     $content = preg_replace('/(<\/table>)\s*<\/p>/', '$1', $content);
     $content = preg_replace('/<p>\s*(<hr>)/', '$1', $content);
-    // Asegurarnos que <blockquote> no quede envuelto por <p>
     $content = preg_replace('/<p>\s*(<blockquote>)/', '$1', $content);
     $content = preg_replace('/(<\/blockquote>)\s*<\/p>/', '$1', $content);
     
@@ -590,7 +616,7 @@ function formatTextContent($content) {
     return '<div class="text-content"><p>' . $content . '</p></div>';
 }
 
-// Obtener archivos
+// Obtener archivos y carpetas
 $files = getContentFiles($contentDir, $allowedExtensions);
 
 // Manejar URL remota con validación
@@ -616,9 +642,15 @@ if ($remoteContent && !isset($remoteContent['error'])) {
 } elseif ($remoteContent && isset($remoteContent['error'])) {
     $currentContent = '<div class="error">Error: ' . htmlspecialchars($remoteContent['error'], ENT_QUOTES, 'UTF-8') . '</div>';
     $currentTitle = 'Error al cargar URL remota';
-} elseif ($selectedFile && file_exists($contentDir . $selectedFile)) {
-    $currentContent = processContent($contentDir . $selectedFile, pathinfo($selectedFile, PATHINFO_EXTENSION));
-    $currentTitle = ucfirst(str_replace(['_', '-'], ' ', pathinfo($selectedFile, PATHINFO_FILENAME)));
+} elseif ($selectedFile) {
+    $filePath = $contentDir . $selectedFile;
+    if (file_exists($filePath) && isFileInAllowedDirectory($filePath, $contentDir)) {
+        $currentContent = processContent($filePath, pathinfo($filePath, PATHINFO_EXTENSION));
+        $currentTitle = ucfirst(str_replace(['_', '-'], ' ', pathinfo(basename($selectedFile), PATHINFO_FILENAME)));
+    } else {
+        $currentContent = '<div class="error">Error: El archivo seleccionado no existe o no es accesible</div>';
+        $currentTitle = 'Archivo no encontrado';
+    }
 }
 
 // Manejar cambio de tema con validación
@@ -640,9 +672,21 @@ if (!in_array($currentTheme, $validThemes)) {
     <title>Guías Temáticas</title>
     <link rel="stylesheet" href="styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Highlight.js (único cambio agregado anteriormente) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" integrity="sha512-M7XkQ7vY4O0Q3+H3p5G7nJk06vZpH4QHjvUuXk1eKQkXJ9v8gU7Hq4f8m2OeXxw2b6H4bZgWwEo1JbV+0f1ycA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" integrity="sha512-fV2t2wY2r4mZx9Xq8JqBv3l5y2pXzJbHc0v8H4nqQ2qgqKx6L0qPjN3m4m4m9wTg0Jgk6gNn9y0WwP2m7m2xWA==" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+    <style>
+        .folder-title {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin: 1rem 0 0.5rem 0;
+            padding-left: 0.5rem;
+            border-left: 3px solid var(--accent-primary);
+        }
+        .file-item.folder-file {
+            padding-left: 1.5rem;
+            border-left: 1px dashed var(--border-medium);
+        }
+    </style>
 </head>
 <body class="<?php echo htmlspecialchars($currentTheme, ENT_QUOTES, 'UTF-8'); ?>-theme">
     <div class="container">
@@ -687,25 +731,52 @@ if (!in_array($currentTheme, $validThemes)) {
                     </div>
                 <?php endif; ?>
                 <nav class="file-list">
-                    <?php if (empty($files)): ?>
+                    <?php if (empty($files['root']) && empty($files['folders'])): ?>
                         <p class="no-files">No se encontraron archivos en el directorio 'content/'</p>
                     <?php else: ?>
-                        <?php foreach ($files as $file): ?>
-                            <a href="?file=<?php echo urlencode($file['name']); ?>" 
-                               class="file-item <?php echo ($selectedFile === $file['name'] && empty($remoteUrl)) ? 'active' : ''; ?>">
-                                <span class="file-icon">
-                                    <?php 
-                                    switch($file['type']) {
-                                        case 'json': echo '📋'; break;
-                                        case 'md': echo '📝'; break;
-                                        case 'txt': echo '📄'; break;
-                                        default: echo '📄';
-                                    }
-                                    ?>
-                                </span>
-                                <span class="file-title"><?php echo htmlspecialchars($file['title'], ENT_QUOTES, 'UTF-8'); ?></span>
-                                <span class="file-type">.<?php echo htmlspecialchars($file['type'], ENT_QUOTES, 'UTF-8'); ?></span>
-                            </a>
+                        <?php if (!empty($files['root'])): ?>
+                            <div class="file-section">
+                                <h4 class="folder-title">Archivos Principales</h4>
+                                <?php foreach ($files['root'] as $file): ?>
+                                    <a href="?file=<?php echo urlencode($file['name']); ?>" 
+                                       class="file-item <?php echo ($selectedFile === $file['name'] && empty($remoteUrl)) ? 'active' : ''; ?>">
+                                        <span class="file-icon">
+                                            <?php 
+                                            switch($file['type']) {
+                                                case 'json': echo '📋'; break;
+                                                case 'md': echo '📝'; break;
+                                                case 'txt': echo '📄'; break;
+                                                default: echo '📄';
+                                            }
+                                            ?>
+                                        </span>
+                                        <span class="file-title"><?php echo htmlspecialchars($file['title'], ENT_QUOTES, 'UTF-8'); ?></span>
+                                        <span class="file-type">.<?php echo htmlspecialchars($file['type'], ENT_QUOTES, 'UTF-8'); ?></span>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                        <?php foreach ($files['folders'] as $folder): ?>
+                            <div class="file-section">
+                                <h4 class="folder-title"><?php echo htmlspecialchars($folder['title'], ENT_QUOTES, 'UTF-8'); ?></h4>
+                                <?php foreach ($folder['files'] as $file): ?>
+                                    <a href="?file=<?php echo urlencode($file['name']); ?>" 
+                                       class="file-item folder-file <?php echo ($selectedFile === $file['name'] && empty($remoteUrl)) ? 'active' : ''; ?>">
+                                        <span class="file-icon">
+                                            <?php 
+                                            switch($file['type']) {
+                                                case 'json': echo '📋'; break;
+                                                case 'md': echo '📝'; break;
+                                                case 'txt': echo '📄'; break;
+                                                default: echo '📄';
+                                            }
+                                            ?>
+                                        </span>
+                                        <span class="file-title"><?php echo htmlspecialchars($file['title'], ENT_QUOTES, 'UTF-8'); ?></span>
+                                        <span class="file-type">.<?php echo htmlspecialchars($file['type'], ENT_QUOTES, 'UTF-8'); ?></span>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
                 </nav>
@@ -749,7 +820,7 @@ if (!in_array($currentTheme, $validThemes)) {
 
     <footer class="footer">
         <div class="footer-content">
-            <p><strong><a href='https://github.com/zidrave/visorweb/' target='_black'  class='link-github'> VisorWeb en Github</a></strong> estilo tutoriales by <strong>Zidrave Labs</strong></p>
+            <p><strong><a href='https://github.com/zidrave/visorweb/' target='_blank' class='link-github'> VisorWeb en Github</a></strong> estilo tutoriales by <strong>Zidrave Labs</strong></p>
         </div>
     </footer>
 
