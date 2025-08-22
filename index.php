@@ -1,4 +1,5 @@
 <?php
+ini_set('session.cookie_lifetime', 250600); // 3600 segundos = 1 hora
 session_start();
 
 // Configuración de sesiones seguras
