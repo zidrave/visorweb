@@ -267,8 +267,69 @@ function getContentFiles($dir, $extensions) {
     return $result;
 }
 
+// Función para obtener hasta 6 archivos relacionados de la misma carpeta, seleccionados aleatoriamente
+function getRelatedFiles($selectedFile, $files) {
+    $related = [];
+    $selectedFolder = '';
+    
+    // Determinar la carpeta del archivo seleccionado
+    if ($selectedFile && strpos($selectedFile, '/') !== false) {
+        $parts = explode('/', $selectedFile);
+        $selectedFolder = $parts[0];
+        $selectedFileName = $parts[1];
+    } else {
+        $selectedFileName = $selectedFile;
+    }
+    
+    // Obtener archivos de la carpeta correspondiente
+    if ($selectedFolder && isset($files['folders'][$selectedFolder])) {
+        $related = $files['folders'][$selectedFolder]['files'];
+    } else {
+        $related = $files['root'];
+    }
+    
+    // Excluir el archivo seleccionado
+    $related = array_filter($related, function($file) use ($selectedFile) {
+        return $file['name'] !== $selectedFile;
+    });
+    
+    // Seleccionar hasta 6 archivos aleatorios
+    if (!empty($related)) {
+        $keys = array_keys($related);
+        $numToSelect = min(6, count($keys));
+        $randomKeys = $numToSelect > 0 ? array_rand($keys, $numToSelect) : [];
+        $randomKeys = (array)$randomKeys; // Convertir a array si es un solo elemento
+        $selectedFiles = [];
+        foreach ($randomKeys as $key) {
+            $selectedFiles[] = $related[$keys[$key]];
+        }
+        $related = $selectedFiles;
+    }
+    
+    // Generar HTML para la lista de temas relacionados
+    if (empty($related)) {
+        return '';
+    }
+    
+    $html = '<hr style="border: none; height: 2px; background-color: #36444e; margin: 20px 0;">';
+    $html .= '<div class="related-topics">';
+    $html .= '<h2>Ver otros temas:</h2>';
+    $html .= '<ul class="related-list">';
+    foreach ($related as $file) {
+        $html .= '<li>';
+        $html .= '<a href="?file=' . urlencode($file['name']) . '" class="related-link">';
+        $html .= htmlspecialchars($file['title'], ENT_QUOTES, 'UTF-8') . ' <span class="file-type">.' . htmlspecialchars($file['type'], ENT_QUOTES, 'UTF-8') . '</span>';
+        $html .= '</a>';
+        $html .= '</li>';
+    }
+    $html .= '</ul>';
+    $html .= '</div>';
+    
+    return $html;
+}
+
 // Función para procesar contenido según el tipo con validación de seguridad
-function processContent($filePath, $type) {
+function processContent($filePath, $type, $selectedFile, $files) {
     global $contentDir, $maxFileSize;
     if (!isFileInAllowedDirectory($filePath, $contentDir)) {
         return '<div class="error">Error de seguridad: Acceso a archivo no autorizado</div>';
@@ -287,7 +348,10 @@ function processContent($filePath, $type) {
     if (isset($sanitized['error'])) {
         return '<div class="error">' . htmlspecialchars($sanitized['error'], ENT_QUOTES, 'UTF-8') . '</div>';
     }
-    return processContentDirect($sanitized['content'], $type);
+    $processedContent = processContentDirect($sanitized['content'], $type);
+    // Agregar temas relacionados solo para archivos locales
+    $relatedContent = getRelatedFiles($selectedFile, $files);
+    return $processedContent . $relatedContent;
 }
 
 // Función para procesar contenido remoto con validación
@@ -645,7 +709,7 @@ if ($remoteContent && !isset($remoteContent['error'])) {
 } elseif ($selectedFile) {
     $filePath = $contentDir . $selectedFile;
     if (file_exists($filePath) && isFileInAllowedDirectory($filePath, $contentDir)) {
-        $currentContent = processContent($filePath, pathinfo($filePath, PATHINFO_EXTENSION));
+        $currentContent = processContent($filePath, pathinfo($filePath, PATHINFO_EXTENSION), $selectedFile, $files);
         $currentTitle = ucfirst(str_replace(['_', '-'], ' ', pathinfo(basename($selectedFile), PATHINFO_FILENAME)));
     } else {
         $currentContent = '<div class="error">Error: El archivo seleccionado no existe o no es accesible</div>';
@@ -685,6 +749,32 @@ if (!in_array($currentTheme, $validThemes)) {
         .file-item.folder-file {
             padding-left: 1.5rem;
             border-left: 1px dashed var(--border-medium);
+        }
+        .related-topics {
+            margin-top: 2rem;
+        }
+        .related-topics h2 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .related-list {
+            list-style: none;
+            padding: 0;
+        }
+        .related-list li {
+            margin: 0.5rem 0;
+        }
+        .related-link {
+            color: var(--accent-primary);
+            text-decoration: none;
+            font-size: 1rem;
+        }
+        .related-link:hover {
+            text-decoration: underline;
+        }
+        .related-link .file-type {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
         }
     </style>
 </head>
